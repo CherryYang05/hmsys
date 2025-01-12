@@ -1,0 +1,43 @@
+# 编译生成的中间文件和目录
+build/
+*.o
+*.obj
+*.so
+*.a
+*.lib
+*.dll
+*.exe
+
+# CMake 生成的临时文件和缓存
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# VSCode 配置文件
+.vscode/
+*.code-workspace
+
+# 日志文件和调试临时文件
+*.log
+*.tmp
+*.bak
+
+# 操作系统生成的文件
+.DS_Store
+Thumbs.db
+
+# 编辑器和 IDE 临时文件
+*.swp
+*.swo
+*.user
+*.idea/
+*.iml
+
+# 自动生成的测试或覆盖率文件
+*.gcno
+*.gcda
+*.gcov
+*.profraw
+*.profdata
+coverage/
