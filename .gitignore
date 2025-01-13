@@ -2,10 +2,10 @@
 build/
 *.o
 *.obj
-*.so
-*.a
-*.lib
-*.dll
+# *.so
+# *.a
+# *.lib
+# *.dll
 *.exe
 
 # CMake 生成的临时文件和缓存
@@ -33,11 +33,3 @@ Thumbs.db
 *.user
 *.idea/
 *.iml
-
-# 自动生成的测试或覆盖率文件
-*.gcno
-*.gcda
-*.gcov
-*.profraw
-*.profdata
-coverage/

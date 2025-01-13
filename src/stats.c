@@ -4,3 +4,14 @@
  * @FilePath    : /hmsys/src/stats.c
  * @Description : 输出统计数据
  */
+
+#include "stats.h"
+
+void hmsys_cleanup() {
+
+}
+
+
+void hmsys_stats() {
+    
+}

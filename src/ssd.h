@@ -4,3 +4,12 @@
  * @FilePath    : /hmsys/src/ssd.h
  * @Description : SSD 设备交互的头文件
  */
+
+#ifndef       HMSYS_SSD_H
+#define       HMSYS_SSD_H
+
+
+
+
+
+#endif
