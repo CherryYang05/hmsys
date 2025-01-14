@@ -1,3 +1,4 @@
 [cache]
 assoc = 4
-size = 512
+block_size = 512
+cache_policy=1

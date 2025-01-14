@@ -9,8 +9,11 @@
 #define       HMSYS_TRACE_H
 
 #include <stdio.h>
+#include "global.h"
+#include "driver.h"
 
+extern FILE *tracefile;
 
-
+ioreq_event *hmsys_iotrace_get_ioreq_event(FILE *tracefile, ioreq_event *new_event);
 
 #endif

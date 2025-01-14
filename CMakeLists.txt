@@ -20,3 +20,4 @@ enable_testing()
 
 # 将 config.toml 的路径作为编译选项传递给程序
 # add_definitions(-DCONFIG_PATH="${CMAKE_SOURCE_DIR}/config.toml")
+set(CMAKE_BUILD_TYPE Debug)

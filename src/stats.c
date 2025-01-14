@@ -9,6 +9,9 @@
 
 void hmsys_cleanup() {
 
+    fclose(statsfile);
+    fclose(response);
+
 }
 
 

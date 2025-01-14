@@ -8,7 +8,13 @@
 #ifndef       HMSYS_STATS_H
 #define       HMSYS_STATS_H
 
+#include "global.h"
+
+extern FILE *statsfile;
+extern FILE *response;
+
 void hmsys_cleanup();
+
 void hmsys_stats();
 
 #endif

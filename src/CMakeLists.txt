@@ -19,5 +19,12 @@ set_target_properties(hmsys PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_D
 
 # 设置宏定义 CONFIG_PATH
 target_compile_definitions(hmsys PRIVATE CONFIG_PATH="${CMAKE_SOURCE_DIR}/config.toml")
+
 # 设置宏定义 TRACE_PATH
 target_compile_definitions(hmsys PRIVATE TRACE_PATH="${CMAKE_SOURCE_DIR}/SSDonTape.trace")
+
+# 设置宏定义 STATS_PATH
+target_compile_definitions(hmsys PRIVATE STATS_PATH="${CMAKE_SOURCE_DIR}/stats.txt")
+
+# 设置宏定义 RESPONSE_PATH
+target_compile_definitions(hmsys PRIVATE RESPONSE_PATH="${CMAKE_SOURCE_DIR}/response.txt")

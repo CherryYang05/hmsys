@@ -7,6 +7,8 @@
 #ifndef HMSYS_LOG_H
 #define HMSYS_LOG_H
 
+#include <errno.h>
+
 #define INFO                INFO
 #define INFO_B              INFO_BORDER
 #define DEBUG               DEBUG
@@ -26,8 +28,8 @@
 #define LOG_DEBUG_BORDER_STYLE      "\x1b[34;1m"    // 蓝色加粗
 #define LOG_STYLE_CLEAR             "\x1b[0m "      // 清除样式
 
-#define LOG_ERROR(...)      printf(LOG_ERROR_STYLE "[ERROR]" LOG_STYLE_CLEAR __VA_ARGS__)
-#define LOG_ERROR_BORDER(...) printf(LOG_ERROR_BORDER_STYLE "[ERROR]" LOG_STYLE_CLEAR __VA_ARGS__)
+#define LOG_ERROR(...)      fprintf(stderr, LOG_ERROR_STYLE "[ERROR]" LOG_STYLE_CLEAR __VA_ARGS__)
+#define LOG_ERROR_BORDER(...) fprintf(stderr, LOG_ERROR_BORDER_STYLE "[ERROR]" LOG_STYLE_CLEAR __VA_ARGS__)
 
 #define LOG_INFO(...)       printf(LOG_INFO_STYLE "[INFO] " LOG_STYLE_CLEAR __VA_ARGS__)
 #define LOG_INFO_BORDER(...) printf(LOG_INFO_BORDER_STYLE "[INFO] " LOG_STYLE_CLEAR __VA_ARGS__)
