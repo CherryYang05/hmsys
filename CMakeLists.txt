@@ -18,6 +18,9 @@ add_subdirectory(src)
 include(CTest)
 enable_testing()
 
+# 添加测试目标
+add_test(NAME test_mapping COMMAND ${CMAKE_SOURCE_DIR}/bin/test_mapping)
+add_test(NAME test_cache COMMAND ${CMAKE_SOURCE_DIR}/bin/test_cache)
 # 将 config.toml 的路径作为编译选项传递给程序
 # add_definitions(-DCONFIG_PATH="${CMAKE_SOURCE_DIR}/config.toml")
 set(CMAKE_BUILD_TYPE Debug)

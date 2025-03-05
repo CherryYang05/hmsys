@@ -21,9 +21,9 @@ ioreq_event *hmsys_iotrace_get_ioreq_event(FILE *tracefile, ioreq_event *new_eve
     }
 
 
-// #ifdef INFO
-//     LOG(INFO, "%s", line);
-// #endif
+#ifdef INFO
+    LOG(INFO, "%s", line);
+#endif
 
     if (sscanf(line, "%c %ld %ld %lf\n",
                &rw,                         // R/W

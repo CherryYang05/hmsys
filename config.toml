@@ -1,4 +1,11 @@
 [cache]
 assoc = 4
-block_size = 512
-cache_policy=1
+block_size = 2
+cache_policy = 1
+size = 32
+write_scheme = 3
+lru_hot_pct = 75
+dirty_thresh = 90
+max_clean_ios_total = 4
+max_clean_ios_set = 2
+lazy_update = 0

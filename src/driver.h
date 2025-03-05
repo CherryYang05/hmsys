@@ -8,15 +8,21 @@
 #ifndef HMSYS_DRIVER_H
 #define HMSYS_DRIVER_H
 
+#include "global.h"
+
+/**
+ * @brief IO 事件，工作负载中的每一条未切分的大的请求
+ * 
+ */
 typedef struct ioreq_ev {
     double time;
     int type;
     struct ioreq_ev *next;
     struct ioreq_ev *prev;
-    int tagID;  // unique value that identifies this IO request;
-    long bcount; // 请求的长度（length）
-    long blkno; // 请求的偏移地址（offset）
-    int flags;
+    int tagID;          // unique value that identifies this IO request;
+    long bcount;        // 请求的长度（length）
+    long blkno;         // 请求的偏移地址（offset）
+    int flags;          // 请求类型(0 为读，1 为写)
     unsigned int busno;
     unsigned int slotno;
     unsigned int devno;
@@ -51,7 +57,27 @@ typedef struct ioreq_ev {
     int background_req; // 用于记录是否是后台请求，2024.11.8
 } ioreq_event;
 
-void iotrace_validate_get_ioreq_event();
+
+/**
+ * @brief IO 请求，事件按照缓存块切分后的每一条请求
+ * 
+ */
+typedef struct ioreq_req {
+
+} ioreq_req;
+
+
+/**
+ * @brief 后端设备的访问队列，需要将读写请求合并统一执行
+ * 
+ */
+typedef struct access_queue {
+    ioreq_event *head;
+    ioreq_event *tail;
+    int length;
+} access_queue;
+
+void iotrace_validate_get_ioreq_event(FILE *tracefile);
 
 
 #endif

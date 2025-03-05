@@ -1,23 +1,127 @@
 /**
  * @Author      : CherryYang
- * @Date        : 2025-01-12 18:15:14
+ * @Date        : 2025-01-12 18:13:56
  * @FilePath    : /hmsys/src/cache.c
- * @Description : 缓存层逻辑
+ * @Description : 缓存逻辑的实现
  */
 
 #include "cache.h"
-#include "global.h"
 #include "log.h"
+#include "cache_layer.h"
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
+#include "driver.h"
+#include "global.h"
+#include "config.h"
 
+/**
+ * @brief 设置缓存设备的默认参数
+ * 
+ * @param cache 缓存设备指针
+ */
+void cache_set_default_params(struct cache_dev *cache) {
+    // 从配置文件中获取参数
+    get_cache_config(cache);
+    
+    // 计算set数量和缓存块数量
+    cache->set_numbers = cache->size / (cache->block_size * cache->assoc);
+    cache->cache_numbers = cache->size / cache->block_size;
+    
+    // 如果配置文件中没有设置懒更新参数，设置默认值
+    // if (cache->lazy_update != 0 && cache->lazy_update != 1) {
+    //     cache->lazy_update = 0; // 默认不采用懒更新
+    // }
+}
+
+/**
+ * @brief 为缓存设备分配内存
+ * 
+ * @param cache 缓存设备指针
+ * @return int 成功返回0，失败返回-1
+ */
+int cache_allocate_memory(struct cache_dev *cache) {
+    // 分配缓存块数组
+    cache->caches = (struct cache_block *)malloc(cache->cache_numbers * sizeof(struct cache_block));
+    if (!cache->caches) {
+        LOG(ERROR, "Failed to allocate memory for cache blocks\n");
+        return -1;
+    }
+    
+    // 分配缓存set数组
+    cache->cache_sets = (struct cache_set *)malloc(cache->set_numbers * sizeof(struct cache_set));
+    if (!cache->cache_sets) {
+        LOG(ERROR, "Failed to allocate memory for cache sets\n");
+        free(cache->caches);
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief 释放缓存设备的内存
+ * 
+ * @param cache 缓存设备指针
+ */
+void cache_free_memory(struct cache_dev *cache) {
+    if (cache) {
+        if (cache->cache_sets) {
+            for (int i = 0; i < cache->set_numbers; i++) {
+                if (cache->cache_sets[i].hash_buckets) {
+                    free(cache->cache_sets[i].hash_buckets);
+                }
+            }
+            free(cache->cache_sets);
+        }
+        
+        if (cache->caches) {
+            free(cache->caches);
+        }
+        
+        free(cache);
+    }
+}
+
+/**
+ * @brief 创建并初始化缓存设备
+ * 
+ * @return struct cache_dev* 成功返回缓存设备指针，失败返回NULL
+ */
+struct cache_dev* cache_create_and_init() {
+    // 创建一个缓存设备
+    struct cache_dev *cache = (struct cache_dev *)malloc(sizeof(struct cache_dev));
+    if (!cache) {
+        LOG(ERROR, "Failed to allocate memory for cache device\n");
+        return NULL;
+    }
+    
+    // 设置缓存参数
+    cache_set_default_params(cache);
+    
+    // 分配内存
+    if (cache_allocate_memory(cache) != 0) {
+        free(cache);
+        return NULL;
+    }
+    
+    // 初始化缓存设备
+    cache_initialize(cache);
+    
+    LOG(INFO, "Cache initialized with %d sets, %d blocks, %d-way associative\n", 
+        cache->set_numbers, cache->cache_numbers, cache->assoc);
+    
+    return cache;
+}
 
 /**
  * @brief 在 cache_set 中查询 blkno 是否被缓存过
- * 
- * @param cache 
- * @param cache_set 
- * @param blkno 
- * @return int* 
+ *
+ * @param cache
+ * @param cache_set
+ * @param blkno
+ * @return int*
  */
 static long *cache_get_hash_bucket(struct cache_dev *cache, struct cache_set *cache_set, long blkno) {
     // unsigned int hash = blkno;
@@ -36,11 +140,10 @@ static long *cache_get_hash_bucket(struct cache_dev *cache, struct cache_set *ca
     return &(cache_set->hash_buckets[hash_index]);
 }
 
-
 /**
  * @brief 给定 set 号和 blkno 查找对应的 block 是否被缓存过
- * 
- * @param cache 
+ *
+ * @param cache
  * @param set 要查找的 set 号
  * @param blkno 要查找的 block num
  * @return 如果被缓存过(命中)则返回对应的 cache block 号，不命中返回 -1
@@ -57,8 +160,6 @@ static long cache_hash_lookup(struct cache_dev *cache, int set, long blkno) {
         这里查找 blkno 是否被缓存过的策略是，先根据 blkno 号找到对应的 set，
         按照直接映射，查找对应的 hash 桶中是否有值，若有值判断请求的块号是否一致，
         若一致则表示命中，返回 cache block 号，不一致则通过 hash 冲突的链式地址法查找。
-
-        BUG
     */
     while (set_ix != CACHE_LRU_NULL) {
         // index = set * cache->assoc + set_ix;
@@ -66,8 +167,8 @@ static long cache_hash_lookup(struct cache_dev *cache, int set, long blkno) {
         cacheblk = &cache->caches[index];
 
         // 请求的 blkno 和 cache 块中的 blkno 比较，相等表示命中，返回 cache block 号
-        //if (blkno == cacheblk->blkno) {  #lzq
         if (blkno / cache->block_size * cache->block_size == cacheblk->blkno) {
+        // if (blkno == cacheblk->blkno) {
             return index;
         }
         set_ix = cacheblk->hash_next;
@@ -75,11 +176,10 @@ static long cache_hash_lookup(struct cache_dev *cache, int set, long blkno) {
     return -1;
 }
 
-
 /**
  * @brief 查找 blkno 是否命中，若命中则将 index 设为 cache block 号
- * 
- * @param cache 
+ *
+ * @param cache
  * @param blkno         请求的块号
  * @param start_index   请求的块号对应的组相联的组(set)的首地址
  * @param index         要返回的有效块号(全局的 cache block number)
@@ -107,9 +207,6 @@ static void find_valid_blkno(struct cache_dev *cache, long blkno, int set_number
     //         break;
     // }
 }
-
-
-
 
 // 没问题
 static void cache_hash_remove(struct cache_dev *cache, long index) {
@@ -143,9 +240,9 @@ static void cache_hash_remove(struct cache_dev *cache, long index) {
 
 /**
  * @brief 新的 cache block 往 hash 链表的头部添加，为双向不循环链表
- * 
- * @param cache 
- * @param index 
+ *
+ * @param cache
+ * @param index
  */
 static void cache_invalid_insert(struct cache_dev *cache, int index) {
     struct cache_set *cache_set;
@@ -174,11 +271,11 @@ static void cache_invalid_insert(struct cache_dev *cache, int index) {
 }
 
 /**
- * @brief 
- * 
- * @param cache 
- * @param start_set 
- * @param io_start 
+ * @brief
+ *
+ * @param cache
+ * @param start_set
+ * @param io_start
  */
 static void cache_inval_block_set(struct cache_dev *cache, int start_set, long io_start) {
     int index;
@@ -209,26 +306,25 @@ static void cache_inval_block_set(struct cache_dev *cache, int start_set, long i
 
 /**
  * @brief 根据请求的块号找到对应的 set 号
- * 
- * @param cache 
- * @param blkno 
- * @return int 
+ *
+ * @param cache
+ * @param blkno
+ * @return int
  */
 inline static int hash_block(struct cache_dev *cache, long blkno) {
     // 一个set有多少个cache块，一个块有多少个扇区
-    //return (blkno / (cache->assoc * cache->block_size)) % cache->set_numbers; #lzq
+    // return (blkno / (cache->assoc * cache->block_size)) % cache->set_numbers; #lzq
     return (blkno / cache->block_size) % cache->set_numbers;
 }
 
-
 /**
  * @brief 请求的块号按照 block_size 对齐(默认是 4KB)
- * 
- * @param cache 
- * @param blkno 
- * @param bcount 
+ *
+ * @param cache
+ * @param blkno
+ * @param bcount
  */
-void cache_inval_blocks(struct cache_dev *cache, long blkno, int bcount) {
+static void cache_inval_blocks(struct cache_dev *cache, long blkno, int bcount) {
     long io_start = blkno / cache->block_size * cache->block_size;
     int start_set = hash_block(cache, io_start);
     // 4KB 粒度对齐。
@@ -238,11 +334,11 @@ void cache_inval_blocks(struct cache_dev *cache, long blkno, int bcount) {
 /**
  * @brief 将 cache block 逐个添加到 hot 和 warm 链表的 LRU 端，即 head 端
  *        hot 和 warm 链表的 tail 端是 MRU 端，head 是 LRU 端
- * 
- * @param cache 
- * @param index 
+ *
+ * @param cache
+ * @param index
  */
-void cache_reclaim_add_block_to_list_lru(struct cache_dev *cache, int index) {
+static void cache_reclaim_add_block_to_list_lru(struct cache_dev *cache, int index) {
     int set = index / cache->assoc;
     int start_index = set * cache->assoc;
     int my_index = index - start_index;
@@ -280,8 +376,8 @@ void cache_reclaim_add_block_to_list_lru(struct cache_dev *cache, int index) {
     }
 }
 
-// 删除 没问题
-void cache_reclaim_remove_block_from_list(struct cache_dev *cache, int index) {
+// 删除
+static void cache_reclaim_remove_block_from_list(struct cache_dev *cache, int index) {
     int set = index / cache->assoc;
     int start_index = set * cache->assoc;
 
@@ -335,7 +431,7 @@ void cache_reclaim_remove_block_from_list(struct cache_dev *cache, int index) {
 }
 
 // no problem
-void cache_reclaim_add_block_to_list_mru(struct cache_dev *cache, int index) {
+static void cache_reclaim_add_block_to_list_mru(struct cache_dev *cache, int index) {
     int set = index / cache->assoc;
     int start_index = set * cache->assoc;
 
@@ -378,11 +474,11 @@ void cache_reclaim_add_block_to_list_mru(struct cache_dev *cache, int index) {
 /**
  * @brief 将 cache block 移动到链表的 MRU 端，即 tail 端
  *        步骤是先将 cache block 从链表中移除，然后再添加到 tail 端
- * 
- * @param cache 
- * @param index 
+ *
+ * @param cache
+ * @param index
  */
-void cache_reclaim_move_to_mru(struct cache_dev *cache, int index) {
+static void cache_reclaim_move_to_mru(struct cache_dev *cache, int index) {
     struct cache_block *cacheblk = &cache->caches[index];
 
     cache_reclaim_remove_block_from_list(cache, index);
@@ -390,15 +486,14 @@ void cache_reclaim_move_to_mru(struct cache_dev *cache, int index) {
     cache_reclaim_add_block_to_list_mru(cache, index);
 }
 
-
 /**
  * @brief 提升索引
- * 
- * @param cache 
- * @param index 
- * @return int 
+ *
+ * @param cache
+ * @param index
+ * @return int
  */
-int cache_reclaim_promote_block(struct cache_dev *cache, int index) {
+static int cache_reclaim_promote_block(struct cache_dev *cache, int index) {
     struct cache_block *cacheblk = &cache->caches[index];
 
     int hot_block;
@@ -442,11 +537,11 @@ int cache_reclaim_promote_block(struct cache_dev *cache, int index) {
  *        实际存储的是数组下标，且下标是从大到小排列。从大到小方向为 hash_next
  *        从小到大方向为 hash_prev。
  *        作用是将当前 cache block 结点从 invalid 链表中移除，将前后指针全部置空。
- * 
- * @param cache 
- * @param index 
+ *
+ * @param cache
+ * @param index
  */
-void cache_invalid_remove(struct cache_dev *cache, int index) {
+static void cache_invalid_remove(struct cache_dev *cache, int index) {
     struct cache_set *cache_set;
     struct cache_block *cacheblk;
     int start_index, set;
@@ -465,7 +560,7 @@ void cache_invalid_remove(struct cache_dev *cache, int index) {
     if (cacheblk->hash_prev != CACHE_LRU_NULL) {
         cache->caches[start_index + cacheblk->hash_prev].hash_next = cacheblk->hash_next;
     } else {
-        cache_set->invalid_head = cacheblk->hash_next;  
+        cache_set->invalid_head = cacheblk->hash_next;
     }
     if (cacheblk->hash_next != CACHE_LRU_NULL) {
         cache->caches[start_index + cacheblk->hash_next].hash_prev = cacheblk->hash_prev;
@@ -475,7 +570,7 @@ void cache_invalid_remove(struct cache_dev *cache, int index) {
 }
 
 // 没问题
-int cache_reclaim_demote_block(struct cache_dev *cache, int index) {
+static int cache_reclaim_demote_block(struct cache_dev *cache, int index) {
     struct cache_block *cacheblk = &cache->caches[index];
     int warm_block;
     int set = index / cache->assoc;
@@ -510,8 +605,8 @@ int cache_reclaim_demote_block(struct cache_dev *cache, int index) {
 
 static int cnt = 0;
 // 最后一个更新函数:清理脏块
-void cache_clean_set(struct cache_dev *cache, int set) {
-    int to_clean = 0;       // 要下刷的脏块数量
+static void cache_clean_set(struct cache_dev *cache, int set) {
+    int to_clean = 0;  // 要下刷的脏块数量
     int start_index = set * cache->assoc;
     int nr_dirty = 0;
     int end_index = start_index + cache->assoc;
@@ -522,7 +617,6 @@ void cache_clean_set(struct cache_dev *cache, int set) {
     int scanned = 0;
     // 计算脏块数量，如果超过阈值，则进行下刷
     for (i = start_index; i < end_index; i++) {
-
         if ((cache->caches[i].cache_state & DIRTY)) {
             nr_dirty++;
         }
@@ -534,13 +628,12 @@ void cache_clean_set(struct cache_dev *cache, int set) {
 
     to_clean = nr_dirty - cache->dirty_thresh_set;
 
-    // if (nr_dirty > 0) 
+    // if (nr_dirty > 0)
     //     printf("dirty = %d, to_clean = %d, thresh = %d\n", nr_dirty, to_clean,cache->dirty_thresh_set);
 
     if (cache->cache_policy == CACHE_FIFO) {
         i = cache_set->set_clean_next;
-        while (scanned < cache->assoc && nr_writes < to_clean 
-                && nr_writes < cache->max_clean_ios_set) {
+        while (scanned < cache->assoc && nr_writes < to_clean && nr_writes < cache->max_clean_ios_set) {
             cacheblk = &cache->caches[i];
             if (cacheblk->cache_state & DIRTY) {
                 cacheblk->cache_state &= ~DIRTY;
@@ -578,14 +671,8 @@ void cache_clean_set(struct cache_dev *cache, int set) {
     return;
 }
 
-
-
-
-
-
-
 // 没问题
-void cache_hash_insert(struct cache_dev *cache, int index) {
+static void cache_hash_insert(struct cache_dev *cache, int index) {
     struct cache_set *cache_set = &cache->cache_sets[index / cache->assoc];
     struct cache_block *cacheblk;
 
@@ -610,26 +697,24 @@ void cache_hash_insert(struct cache_dev *cache, int index) {
     *hash_bucket = set_ix;
 }
 
-
-
 /**
  * @brief 采用 LRU 替换策略时，新来一个请求时，将缓存块移动到链表的 MRU 端
- * 
- * @param cache 
- * @param index 
+ *
+ * @param cache
+ * @param index
  */
-void cache_lru_accessed(struct cache_dev *cache, int index) {
+static void cache_lru_accessed(struct cache_dev *cache, int index) {
     cache_reclaim_move_to_mru(cache, index);
     return;
 }
 
 /**
  * @brief 采用双链 LRU 替换策略时，新来一个请求时，提升缓存块热度
- * 
- * @param cache 
+ *
+ * @param cache
  * @param index cache block 号
  */
-void cache_double_linklist_lru_accessed(struct cache_dev *cache, int index) {
+static void cache_double_linklist_lru_accessed(struct cache_dev *cache, int index) {
     struct cache_block *cacheblk = &cache->caches[index];
 
     /*
@@ -663,12 +748,12 @@ void cache_double_linklist_lru_accessed(struct cache_dev *cache, int index) {
 
 /**
  * @brief FIFO 缓存替换策略
- * 
- * @param cache 
- * @param start_index 
- * @param index 
+ *
+ * @param cache
+ * @param start_index
+ * @param index
  */
-void cache_reclaim_fifo_get_old_block(struct cache_dev *cache, long start_index, long *index) {
+static void cache_reclaim_fifo_get_old_block(struct cache_dev *cache, long start_index, long *index) {
     int set = start_index / cache->assoc;
     struct cache_set *cache_set = &cache->cache_sets[set];
     int end_index = start_index + cache->assoc;
@@ -698,12 +783,12 @@ void cache_reclaim_fifo_get_old_block(struct cache_dev *cache, long start_index,
 
 /**
  * @brief 单链 LRU 缓存替换策略，替换的块可以是 VALID 或 DIRTY
- * 
- * @param cache 
+ *
+ * @param cache
  * @param start_index 当前 set 开始的缓存块号
  * @param oldest_clean 要淘汰的缓存块号
  */
-void cache_reclaim_lru_get_old_block(struct cache_dev *cache, long start_index, long *oldest_clean) {
+static void cache_reclaim_lru_get_old_block(struct cache_dev *cache, long start_index, long *oldest_clean) {
     struct cache_block *cacheblk;
     int set = start_index / cache->assoc;
     struct cache_set *cache_set = &(cache->cache_sets[set]);
@@ -712,35 +797,35 @@ void cache_reclaim_lru_get_old_block(struct cache_dev *cache, long start_index, 
 
     int is_tape = 1;
     if (is_tape == 0) {
-      if (tmp != CACHE_LRU_NULL) {
-        *oldest_clean = tmp + start_index;
-        // cache_reclaim_move_to_mru(cache, *oldest_clean);
-      }
+        if (tmp != CACHE_LRU_NULL) {
+            *oldest_clean = tmp + start_index;
+            // cache_reclaim_move_to_mru(cache, *oldest_clean);
+        }
     } else {
-      while (tmp != CACHE_LRU_NULL) {
-        *oldest_clean = tmp + start_index;
-        cacheblk = &cache->caches[*oldest_clean];
-        if(!(cacheblk->cache_state & DIRTY)) {
-          break;
+        while (tmp != CACHE_LRU_NULL) {
+            *oldest_clean = tmp + start_index;
+            cacheblk = &cache->caches[*oldest_clean];
+            if (!(cacheblk->cache_state & DIRTY)) {
+                break;
+            }
+            if ((cacheblk->cache_state & DIRTY) && (cache->tape_eod == cacheblk->blkno)) {
+                cache->tape_eod += cache->block_size;
+                break;
+            }
+            tmp = cacheblk->lru_next;
         }
-        if ((cacheblk->cache_state & DIRTY) && (cache->tape_eod == cacheblk->blkno)) {
-          cache->tape_eod += cache->block_size;
-          break;
-        }
-        tmp = cacheblk->lru_next;
-      }
     }
     return;
 }
 
 /**
  * @brief 双链 LRU 缓存替换策略
- * 
- * @param cache 
- * @param start_index 
- * @param index 
+ *
+ * @param cache
+ * @param start_index
+ * @param index
  */
-void cache_reclaim_double_linklist_lru_get_old_block(struct cache_dev *cache, int start_index, int *index) {
+static void cache_reclaim_double_linklist_lru_get_old_block(struct cache_dev *cache, int start_index, int *index) {
     int lru_rel_index;
 
     struct cache_block *cacheblk;
@@ -798,14 +883,12 @@ void cache_reclaim_double_linklist_lru_get_old_block(struct cache_dev *cache, in
     }
 }
 
-
-
 /**
  * @brief 缓存未命中，查找空闲块(invalid)
- * 
- * @param cache 
- * @param set 
- * @return int 
+ *
+ * @param cache
+ * @param set
+ * @return int
  */
 static int find_invalid_blkno(struct cache_dev *cache, int set) {
     struct cache_set *cache_set;
@@ -824,7 +907,7 @@ static int find_invalid_blkno(struct cache_dev *cache, int set) {
     cacheblk = &cache->caches[index];
 
 #ifdef DEBUG
-    LOG(DEBUG, "block_state(1: INVALID, 2: VALID, 64: DIRTY, 66: VALID & DIRTY): %d, lru_state(1: Hot, 2: Warm): %d\n", cacheblk->cache_state,cacheblk->lru_state);
+    LOG(DEBUG, "block_state(1: INVALID, 2: VALID, 64: DIRTY, 66: VALID & DIRTY): %d, lru_state(1: Hot, 2: Warm): %d\n", cacheblk->cache_state, cacheblk->lru_state);
     LOG(DEBUG, "curr invalid_head: %ld, hash_prev: %ld, hash_next: %ld\n", cache_set->invalid_head, cacheblk->hash_prev, cacheblk->hash_next);
 #endif
 
@@ -832,26 +915,23 @@ static int find_invalid_blkno(struct cache_dev *cache, int set) {
     cache_invalid_remove(cache, index);
 
     if (index != -1) {
-// #ifdef DEBUG
+        // #ifdef DEBUG
         // LOG(DEBUG, "After remove from invalid, hash_prev: %d, hash_next: %d\n", cacheblk->hash_prev, cacheblk->hash_next);
-// #endif
-
+        // #endif
     }
     return index;
 }
 
-
 /**
  * @brief 缓存替换策略，可以自定义自己的替换策略
- * 
- * @param cache 
- * @param start_index 
- * @param oldest_clean 
+ *
+ * @param cache
+ * @param start_index
+ * @param oldest_clean
  */
 static void find_reclaim_blkno(struct cache_dev *cache, long start_index, long *oldest_clean) {
-
 #ifdef DEBUG
-    LOG(DEBUG, LOG_DEBUG_STYLE"Cache eviction"LOG_STYLE_CLEAR"\n");
+    LOG(DEBUG, LOG_DEBUG_STYLE "Cache eviction" LOG_STYLE_CLEAR "\n");
 #endif
 
     // 在这里可以添加自定义的缓存替换策略
@@ -866,30 +946,29 @@ static void find_reclaim_blkno(struct cache_dev *cache, long start_index, long *
             break;
     }
 
-    /*
-        替换下来的块如果是脏块，才需要写回，这里逻辑上没有计算下刷到磁盘上的时间，
-        只是将 DIRTY 设置成 VALID
-    */
-#if 0  //lzq
+        /*
+            替换下来的块如果是脏块，才需要写回，这里逻辑上没有计算下刷到磁盘上的时间，
+            只是将 DIRTY 设置成 VALID
+        */
+#if 0  // lzq
     if (cache->caches[*oldest_clean].cache_state & DIRTY) 
     {
         cache->caches[*oldest_clean].cache_state = VALID;
     }
 #endif
-
 }
 
 /**
  * @brief 根据块号查询缓存是否命中
- * 
- * @param cache 
+ *
+ * @param cache
  * @param blkno 请求的扇区号
  * @param index 如果命中，则返回 cache block 的索引号
  * @return HIT 或 NOT_HIT
  */
-static int cache_lookup(struct cache_dev *cache, long blkno, long *index) {
-
+int cache_lookup(struct cache_dev *cache, ioreq_event *req, long *index) {
     int res = -1;
+    long blkno = req->blkno;
 
     // 根据请求的块号找到对应的 set 号
     int set_number = hash_block(cache, blkno);
@@ -899,25 +978,23 @@ static int cache_lookup(struct cache_dev *cache, long blkno, long *index) {
     // 当前 set 的起始缓存块号
     long start_index = cache->assoc * set_number;
 
-
-    /* 
+    /*
         查找是否命中。返回 index = -1 表示不命中
         返回的 index >= 0 的值表示命中，且 index 的值的含义为命中的缓存块号
     */
     find_valid_blkno(cache, blkno, set_number, index);
 
     if (*index >= 0) {
-
 #ifdef DEBUG
-        LOG(DEBUG, "set: %d, cache block: %ld, "LOG_INFO_BORDER_STYLE"Hit"LOG_STYLE_CLEAR"\n", set_number, *index);
+        LOG(DEBUG, "set: %d, cache block: %ld, " LOG_INFO_BORDER_STYLE "Hit" LOG_STYLE_CLEAR "\n", set_number, *index);
 #endif
 
         res = HIT;
     }
 
-
-
-    // 不命中则查找空闲块，返回的 invalid 结果就是空闲块的缓存块号，如果为 -1，表示没有空闲块了
+    /*
+        不命中则查找空闲块，返回的 invalid 结果就是空闲块的缓存块号，如果为 -1，表示没有空闲块了
+    */
     if (*index < 0) {
         invalid = find_invalid_blkno(cache, set_number);
 
@@ -927,10 +1004,10 @@ static int cache_lookup(struct cache_dev *cache, long blkno, long *index) {
         }
 
         /*
-        * Cache miss :
-        * We can't choose an entry marked INPROG, but choose the oldest
-        * INVALID or the oldest VALID entry.
-        */
+         * Cache miss :
+         * We can't choose an entry marked INPROG, but choose the oldest
+         * INVALID or the oldest VALID entry.
+         */
 
         *index = start_index + cache->assoc;
         if (invalid != -1) {
@@ -947,16 +1024,16 @@ static int cache_lookup(struct cache_dev *cache, long blkno, long *index) {
         }
 
 #ifdef DEBUG
-    if (oldest_clean == -1) {
-        LOG(DEBUG, "set: %d, cache block: %ld, "LOG_ERROR_BORDER_STYLE"Not Hit"LOG_STYLE_CLEAR"\n", set_number, *index);
-    } else {
-        LOG(DEBUG, "set: %d, Evition cache block: %ld, "LOG_ERROR_BORDER_STYLE"Not Hit"LOG_STYLE_CLEAR"\n", set_number, oldest_clean);
-    }
+        if (oldest_clean == -1) {
+            LOG(DEBUG, "set: %d, cache block: %ld, " LOG_ERROR_BORDER_STYLE "Not Hit" LOG_STYLE_CLEAR "\n", set_number, *index);
+        } else {
+            LOG(DEBUG, "set: %d, Evition cache block: %ld, " LOG_ERROR_BORDER_STYLE "Not Hit" LOG_STYLE_CLEAR "\n", set_number, oldest_clean);
+        }
 #endif
-
     }
 
     // 每次新来请求，根据不同缓存策略调整该请求所分配的缓存块的位置
+    // if (req->flags & WRITE) {
     switch (cache->cache_policy) {
         case CACHE_FIFO:
             break;
@@ -969,6 +1046,7 @@ static int cache_lookup(struct cache_dev *cache, long blkno, long *index) {
         default:
             break;
     }
+        // }
 
 #ifdef DEBUG
     struct cache_set *cache_set = &cache->cache_sets[hash_block(cache, blkno)];
@@ -982,10 +1060,10 @@ static int cache_lookup(struct cache_dev *cache, long blkno, long *index) {
 /**
  * @brief lru链表的初始化，每个 set 的 hot 链表在 blockno 编号大的一端，
  *        warm 链表在小的一端，invalid_head 便从 hot 开始分配
- * 
- * @param cache 
+ *
+ * @param cache
  */
-void cache_init_lru_lists(struct cache_dev *cache) {
+static void cache_init_lru_lists(struct cache_dev *cache) {
     int start_index = 0;
     int i = 0;
     int j = 0;
@@ -1010,7 +1088,7 @@ void cache_init_lru_lists(struct cache_dev *cache) {
             cacheblk->lru_next = CACHE_LRU_NULL;
             // cacheblk->lru_state = LRU_HOT;
             cacheblk->lru_state = LRU_WARM;
-            
+
             // 添加到Lru端
             cache_reclaim_add_block_to_list_lru(cache, block_index);
         }
@@ -1030,10 +1108,10 @@ void cache_init_lru_lists(struct cache_dev *cache) {
 
 /**
  * @brief 初始化缓存结构体(cache_dev)
- * 
- * @param cache 
+ *
+ * @param cache
  */
-static void cache_initialize(struct cache_dev *cache) {
+void cache_initialize(struct cache_dev *cache) {
     cache->tape_eod = 0;
     cache->stat.reads = 0;
     cache->stat.readblocks = 0;
@@ -1054,7 +1132,7 @@ static void cache_initialize(struct cache_dev *cache) {
 
     // hot 链表的比例
     cache->lru_hot_pct = CACHE_LRU_HOT_PCT_DEFAULT;
-    
+
     // 将所有的 cache 进行初始化
     for (int i = 0; i < cache->set_numbers; i++) {
         cache->cache_sets[i].set_fifo_next = i * cache->assoc;
@@ -1081,7 +1159,7 @@ static void cache_initialize(struct cache_dev *cache) {
         cache->cache_sets[i].lru_warm_blocks = 0;
 
         // 根据 assoc 给 hash_bucket 分配空间
-        cache->cache_sets[i].hash_buckets = (long*)malloc(cache->assoc * sizeof(long));
+        cache->cache_sets[i].hash_buckets = (long *)malloc(cache->assoc * sizeof(long));
         for (int j = 0; j < cache->assoc; j++) {
             cache->cache_sets[i].hash_buckets[j] = CACHE_LRU_NULL;
         }
@@ -1108,4 +1186,266 @@ static void cache_initialize(struct cache_dev *cache) {
     // dirty块占据百分之20的时候开始
     cache->max_clean_ios_total = MAX_CLEAN_IOS_TOTAL;
     cache->max_clean_ios_set = MAX_CLEAN_IOS_SET;
+}
+
+/**
+ * @brief 给定读请求是否命中
+ *
+ * @param cache
+ * @param req
+ * @param index
+ * @return 命中返回 1，不命中返回 0
+ */
+static int cache_isreadhit(struct cache_dev *cache, ioreq_event *req, long *index) {
+    struct cache_block *cacheblk;
+    int res;
+    int flag = 0;
+
+    // 初始化cache_hit为0
+    req->cache_hit = 0;
+    
+    // 查找请求的块号是否在缓存中
+    res = cache_lookup(cache, req, index);
+
+    if (res != CACHE_ERROR) {
+        if (res == HIT) {
+            // 命中缓存
+            cache->stat.readhitsfull++;
+            flag = 1;
+            req->cache_hit = 1;
+        } else if (res == NOT_HIT) {
+            // 未命中缓存
+            cache->stat.readmisses++;
+            flag = 0;
+        }
+    }
+
+// 打印 hash 桶的信息
+#ifdef DEBUG
+    LOG(DEBUG, "hash:");
+    int setnum = hash_block(cache, req->blkno);
+    struct cache_set *cache_set = &(cache->cache_sets[setnum]);
+    struct cacheblock *cacheblk2;
+    for (int i = 0; i < cache->set_numbers; i++) {
+        long cache_block = cache_set->hash_buckets[i];
+        cacheblk2 = &(cache->caches[cache_block + cache->assoc * setnum]);
+        if (cache_block == CACHE_LRU_NULL) {
+            printf(" null");
+        } else {
+            printf(" %ld", cache_block);
+            while (cacheblk2->hash_next != CACHE_LRU_NULL) {
+                printf("->%ld", cacheblk2->hash_next);
+                cacheblk2 = &(cache->caches[cacheblk2->hash_next]);
+            }
+        }
+    }
+    printf("\n");
+#endif
+    return flag;
+}
+
+/**
+ * @brief 给定请求是否写命中
+ *
+ * @param cache
+ * @param req
+ * @param index 如果写命中，则返回 cache block 的索引
+ * @return 命中返回 1，不命中返回 0
+ */
+static int cache_iswritehit(struct cache_dev *cache, ioreq_event *req, long *index) {
+    struct cache_block *cacheblk;
+    int res;
+    int flag = 0;
+
+    /*
+        如果写命中 index 返回的就是命中的缓存块号，返回的 res 为 HIT
+        如果不命中 index 返回的就是要替换的缓存块号，返回的 res 为 NOT_HIT
+        函数执行失败，res 返回 -1
+    */
+    res = cache_lookup(cache, req, index);
+    req->cache_hit = 0;  // lzq
+
+    // res == -1 表示出错
+    if (res != CACHE_ERROR) {
+        cacheblk = &cache->caches[*index];
+
+        // 写命中的场景
+        if (res == HIT) {
+            // 写直通模式，不设置脏标志
+            cacheblk->blkno = req->blkno;
+            cache->stat.writehitsfull++;
+            flag = 1;
+            req->cache_hit = 1;  // lzq
+        } else if (res == NOT_HIT) {
+            /*
+                不命中场景，缓存块是 INVALID 或者是请求块号不同的 VALID 块
+            */
+            cache->stat.writemisses++;
+            flag = 0;
+        }
+    }
+
+// 打印 hash 桶的信息
+#ifdef DEBUG
+    LOG(DEBUG, "hash:");
+    int setnum = hash_block(cache, req->blkno);
+    struct cache_set *cache_set = &(cache->cache_sets[setnum]);
+    struct cacheblock *cacheblk2;
+    for (int i = 0; i < cache->assoc; i++) {
+        long cache_block = cache_set->hash_buckets[i];
+        // cacheblk2 = &(cache->caches[cache_block + cache->assoc * setnum]);
+        cacheblk2 = &(cache->caches[cache_block]);
+        if (cache_block == CACHE_LRU_NULL) {
+            printf(" null");
+        } else {
+            printf(" %ld", cache_block);
+            while (cacheblk2->hash_next != CACHE_LRU_NULL) {
+                printf("->%ld", cacheblk2->hash_next);
+                cacheblk2 = &(cache->caches[cacheblk2->hash_next]);
+            }
+        }
+    }
+    printf("\n");
+#endif
+
+    return flag;
+}
+
+/**
+ * @brief 执行缓存流程
+ *
+ * 功能说明：
+ *  1. 首先判断请求在缓存中是否命中，读请求调用 cache_isreadhit，写请求调用 cache_iswritehit。
+ *  2. 若命中，返回命中的缓存块。
+ *  3. 若未命中，则：
+ *      - 如果是读请求，从磁带读取数据到缓存中，替换缓存块；
+ *      - 如果是写请求，同时写入缓存和磁带，更新映射表。
+ *
+ * @param cache 指向cache设备结构体的指针
+ * @param req   请求结构体指针，其中包含 blkno、flags 以及 cache_hit 字段
+ * @param mapping 地址映射表指针，用于逻辑地址到物理地址的转换
+ * @return      分配给请求的缓存块指针；若出错则返回NULL
+ */
+void *hmsys_cache_access(struct cache_dev *cache, ioreq_event *req, address_mapping_t *mapping) {
+    int hit = 0;
+    long index = -1;
+    uint32_t phy_addr = 0;
+
+    // 首先进行逻辑地址到物理地址的转换
+    if (req->flags == READ) {
+        // 读操作需要先检查映射表中是否存在映射
+        uint64_t logical_addr = req->blkno * BLOCK_SIZE;
+        phy_addr = map_log_to_phy(mapping, logical_addr, 0); // 0表示读操作
+        
+        if (phy_addr == (uint32_t)-1) {
+            // 映射不存在，无法读取
+            LOG(ERROR, "Read operation on unmapped address: %lu\n", 
+                logical_addr);
+            return NULL;
+        }
+        
+        // 在缓存中查找是否命中
+        hit = cache_isreadhit(cache, req, &index);
+    } else if (req->flags == WRITE) {
+        // 写操作总是创建新的映射
+        uint64_t logical_addr = req->blkno * BLOCK_SIZE;
+        phy_addr = map_log_to_phy(mapping, logical_addr, 1); // 1表示写操作
+        
+        // 在缓存中查找是否命中（写操作通常不会命中，因为每次写都是不覆盖的）
+        hit = cache_iswritehit(cache, req, &index);
+    } else {
+        /* 未知的请求类型 */
+        fatal("Unknown request type", "");
+        return NULL;
+    }
+
+    /* 检查返回的索引是否合法 */
+    if (index < 0 || index >= cache->cache_numbers) {
+        fatal("Invalid cache block index", "");
+        return NULL;
+    }
+
+    struct cache_block *blk = &cache->caches[index];
+
+    if (req->flags == READ) {
+        if (hit) {
+            // 读命中，直接返回数据
+            LOG(DEBUG, "Read hit: logical=%ld, physical=%u\n", 
+                req->blkno, phy_addr);
+        } else {
+            // 读未命中
+            LOG(DEBUG, "Read miss: logical=%ld, physical=%u\n", 
+                req->blkno, phy_addr);
+            
+            // 从磁带读取数据
+            LOG(DEBUG, "Read from tape: physical=%u\n", 
+                phy_addr);
+            
+            // 判断是否采用懒更新策略
+            int update_cache = 1; // 默认更新缓存
+            
+            if (cache->lazy_update) {
+                // 懒更新策略：检查是否有足够的空闲空间
+                int set_number = hash_block(cache, req->blkno);
+                long invalid = find_invalid_blkno(cache, set_number);
+                
+                if (invalid == -1) {
+                    // 没有空闲块，不更新缓存
+                    LOG(INFO, "No free cache block, skip updating cache (lazy update)\n");
+                    update_cache = 0;
+                }
+            }
+            
+            if (update_cache) {
+                // 替换缓存块
+                if (blk->cache_state & VALID) {
+                    // 从哈希表中移除
+                    cache_hash_remove(cache, index);
+                }
+                
+                // 更新缓存块信息
+                blk->blkno = req->blkno;
+                blk->phy_addr = phy_addr;
+                blk->cache_state = VALID; // 设置为有效
+                
+                // 将更新后的块挂接到哈希链中
+                cache_hash_insert(cache, index);
+                
+                LOG(DEBUG, "Updated cache with data from tape: logical=%ld, physical=%u\n", 
+                    req->blkno, phy_addr);
+            }
+        }
+    } else if (req->flags == WRITE) {
+        // 写操作处理
+        if (hit) {
+            // 写命中（不应该发生，因为每次写都是不覆盖的）
+            LOG(ERROR, "Unexpected write hit: logical=%ld, physical=%u\n", 
+                req->blkno, phy_addr);
+        } else {
+            // 写未命中
+            LOG(DEBUG, "Write miss: logical=%ld, physical=%u\n", 
+                req->blkno, phy_addr);
+            
+            // 替换缓存块
+            if (blk->cache_state & VALID) {
+                // 从哈希表中移除
+                cache_hash_remove(cache, index);
+            }
+            
+            // 更新缓存块信息
+            blk->blkno = req->blkno;
+            blk->phy_addr = phy_addr;
+            blk->cache_state = VALID; // 设置为有效
+            
+            // 将更新后的块挂接到哈希链中
+            cache_hash_insert(cache, index);
+            
+            // 同时写入磁带
+            LOG(DEBUG, "Write to tape: logical=%ld, physical=%u\n", 
+                req->blkno, phy_addr);
+            // 这里应该调用写磁带函数
+        }
+    }
+    
+    return blk;
 }

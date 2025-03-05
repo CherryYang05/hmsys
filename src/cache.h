@@ -2,8 +2,11 @@
  * @Author      : CherryYang
  * @Date        : 2025-01-12 18:15:30
  * @FilePath    : /hmsys/src/cache.h
- * @Description : 缓存层逻辑的头文件
+ * @Description : 缓存逻辑的头文件
  */
+
+#include "driver.h"
+#include "cache_layer.h"
 
 #ifndef HMSYS_CACHE_H
 #define HMSYS_CACHE_H
@@ -44,6 +47,14 @@
 #define LRU_WARM    0x0002 /* On Warm LRU List */
 
 
+// cache 写策略
+
+#define CACHE_WRITE_MIN         1
+#define CACHE_WRITE_SYNCONLY    1
+#define CACHE_WRITE_THRU        2
+#define CACHE_WRITE_BACK        3
+#define CACHE_WRITE_MAX         3
+
 #define CACHE_LRU_HOT_PCT_DEFAULT   75
 #define DIRTY_THRESH_MIN            10
 #define DIRTY_THRESH_MAX            90
@@ -54,7 +65,7 @@
 
 
 /**
- * @brief cache 块有两个状态 cache的状态，以及LRU的状态。
+ * @brief cache 块有两个状态: cache 的状态，以及 LRU 的状态。
  * 
  */
 struct cache_block {
@@ -70,6 +81,7 @@ struct cache_block {
     long hash_prev, hash_next;  /* 当该缓存块为 INVALID，表示空闲缓存块链表的前置指针；
                                    当该缓存块为非 INVALID，表示哈希表中同一个 value 
                                    所链成的链表的前置指针 */
+    uint32_t phy_addr;          /* 物理地址 */
 };
 
 /**
@@ -148,15 +160,42 @@ struct cache_dev {
     int prefetch_thresh;            /* 预取阈值 */
     int max_clean_ios_set;          /* Max cleaning IOs per set */
     int max_clean_ios_total;        /* Total max cleaning IOs */
+    int lazy_update;                /* 是否采用懒更新策略，1表示采用，0表示不采用 */
 };
 
 
-// static void cache_initialize(struct cache_dev *cache);
-// void cache_init_lru_lists(struct cache_dev *cache);
-// static int hash_block(struct cache_dev *cache, long blkno);
-// static void find_valid_blkno(struct cache_dev *cache, long blkno, int set_number, int *index);
-// static int find_invalid_blkno(struct cache_dev *cache, int set);
-// static int cache_lookup(struct cache_dev *cache, long blkno, int *index);
+/**
+ * @brief 设置缓存设备的默认参数
+ * 
+ * @param cache 缓存设备指针
+ */
+void cache_set_default_params(struct cache_dev *cache);
+
+/**
+ * @brief 为缓存设备分配内存
+ * 
+ * @param cache 缓存设备指针
+ * @return int 成功返回0，失败返回-1
+ */
+int cache_allocate_memory(struct cache_dev *cache);
+
+/**
+ * @brief 释放缓存设备的内存
+ * 
+ * @param cache 缓存设备指针
+ */
+void cache_free_memory(struct cache_dev *cache);
+
+/**
+ * @brief 创建并初始化缓存设备
+ * 
+ * @return struct cache_dev* 成功返回缓存设备指针，失败返回NULL
+ */
+struct cache_dev* cache_create_and_init();
+
+int cache_lookup(struct cache_dev *cache, ioreq_event *req, long *index);
+void cache_initialize(struct cache_dev *cache);
+void *hmsys_cache_access(struct cache_dev *cache, ioreq_event *req, address_mapping_t *mapping);
 
 
 #endif

@@ -26,10 +26,10 @@
 typedef struct timefilter_t {
     time_t start_time;
     time_t end_time;
-    double total_time;             // 整个系统运行时间
-    double init_time;              // 初始化时间
-    double stats_time;             // 数据统计时间，即打印每条 trace 时延到输出文件中的时间
-    double event_type_time[320];  // 分别统计不同状态的事件所花费的时间
+    double total_time;              // 整个系统运行时间
+    double init_time;               // 初始化时间
+    double stats_time;              // 数据统计时间，即打印每条 trace 时延到输出文件中的时间
+    double event_type_time[320];    // 分别统计不同状态的事件所花费的时间
 } timefilter;
 
 timefilter *time_filter;

@@ -11,7 +11,7 @@
 
 #define INFO                INFO
 #define INFO_B              INFO_BORDER
-#define DEBUG               DEBUG
+// #define DEBUG               DEBUG
 #define DEBUG_B             DEBUG_BORDER
 #define WARNING             WARNING
 #define WARNING_B           WARNING_BORDER
